@@ -1,0 +1,122 @@
+package com.nexora.loader;
+
+import com.nexora.core.intent.Intent;
+import com.nexora.core.plan.Plan;
+import com.nexora.event.InProcessEventBus;
+import com.nexora.registry.DefaultCapabilityRegistry;
+import com.nexora.spi.CapabilityProvider;
+import com.nexora.spi.NexoraPlugin;
+import com.nexora.spi.Planner;
+import com.nexora.spi.PlannerDescriptor;
+import com.nexora.spi.PlannerProvider;
+import com.nexora.spi.PlanningContext;
+import com.nexora.spi.PluginContext;
+import com.nexora.spi.PluginDescriptor;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+class PluginManagerTest {
+
+    @Test
+    void removesOnlyDeactivatedPluginPlanners() {
+        PluginManager manager = new PluginManager(
+                new DefaultCapabilityRegistry(),
+                new InProcessEventBus(Runnable::run)
+        );
+
+        NexoraPlugin pluginA = new TestPlugin("plugin-a", "planner-a");
+        NexoraPlugin pluginB = new TestPlugin("plugin-b", "planner-b");
+
+        manager.registerPlugin(pluginA);
+        manager.registerPlugin(pluginB);
+        manager.activatePlugin("plugin-a");
+        manager.activatePlugin("plugin-b");
+
+        assertEquals(Set.of("planner-a", "planner-b"), plannerIds(manager));
+
+        manager.deactivatePlugin("plugin-a");
+        assertEquals(Set.of("planner-b"), plannerIds(manager));
+
+        manager.deactivatePlugin("plugin-b");
+        assertEquals(Set.of(), plannerIds(manager));
+    }
+
+    private static Set<String> plannerIds(PluginManager manager) {
+        return manager.registeredPlanners().stream()
+                .map(p -> p.descriptor().id())
+                .collect(Collectors.toSet());
+    }
+
+    private static final class TestPlugin implements NexoraPlugin {
+        private final String pluginId;
+        private final String plannerId;
+
+        private TestPlugin(String pluginId, String plannerId) {
+            this.pluginId = pluginId;
+            this.plannerId = plannerId;
+        }
+
+        @Override
+        public PluginDescriptor descriptor() {
+            return new PluginDescriptor(pluginId, "1.0.0", pluginId, List.of(), null);
+        }
+
+        @Override
+        public void initialize(PluginContext context) {
+            // no-op
+        }
+
+        @Override
+        public List<CapabilityProvider> capabilityProviders() {
+            return List.of();
+        }
+
+        @Override
+        public List<PlannerProvider> plannerProviders() {
+            return List.of(new PlannerProvider() {
+                @Override
+                public PlannerDescriptor descriptor() {
+                    return new PlannerDescriptor(plannerId, "test planner", 10);
+                }
+
+                @Override
+                public Planner create(PluginContext context) {
+                    return new TestPlanner(plannerId);
+                }
+            });
+        }
+
+        @Override
+        public void shutdown() {
+            // no-op
+        }
+    }
+
+    private static final class TestPlanner implements Planner {
+        private final PlannerDescriptor descriptor;
+
+        private TestPlanner(String plannerId) {
+            this.descriptor = new PlannerDescriptor(plannerId, "test planner", 10);
+        }
+
+        @Override
+        public PlannerDescriptor descriptor() {
+            return descriptor;
+        }
+
+        @Override
+        public boolean canPlan(Intent intent, PlanningContext context) {
+            return false;
+        }
+
+        @Override
+        public Plan plan(Intent intent, PlanningContext context) {
+            return new Plan(List.of());
+        }
+    }
+}
