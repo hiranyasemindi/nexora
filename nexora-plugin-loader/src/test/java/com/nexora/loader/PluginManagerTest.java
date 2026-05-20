@@ -12,6 +12,7 @@ import com.nexora.spi.PlannerProvider;
 import com.nexora.spi.PlanningContext;
 import com.nexora.spi.PluginContext;
 import com.nexora.spi.PluginDescriptor;
+import com.nexora.spi.PluginInitializationException;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -19,6 +20,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PluginManagerTest {
 
@@ -46,6 +48,42 @@ class PluginManagerTest {
         assertEquals(Set.of(), plannerIds(manager));
     }
 
+    @Test
+    void failsActivationWhenRequiredPluginIsNotActive() {
+        PluginManager manager = new PluginManager(
+                new DefaultCapabilityRegistry(),
+                new InProcessEventBus(Runnable::run)
+        );
+
+        NexoraPlugin base = new TestPlugin("base-plugin", "base-planner");
+        NexoraPlugin dependent = new TestPlugin("dependent-plugin", "dep-planner", List.of("base-plugin"));
+
+        manager.registerPlugin(base);
+        manager.registerPlugin(dependent);
+
+        assertThrows(PluginInitializationException.class, () -> manager.activatePlugin("dependent-plugin"));
+        assertEquals(PluginLifecycle.LOADED, manager.getLifecycle("dependent-plugin"));
+    }
+
+    @Test
+    void preventsDeactivatingPluginWithActiveDependents() {
+        PluginManager manager = new PluginManager(
+                new DefaultCapabilityRegistry(),
+                new InProcessEventBus(Runnable::run)
+        );
+
+        NexoraPlugin base = new TestPlugin("base-plugin", "base-planner");
+        NexoraPlugin dependent = new TestPlugin("dependent-plugin", "dep-planner", List.of("base-plugin"));
+
+        manager.registerPlugin(base);
+        manager.registerPlugin(dependent);
+        manager.activatePlugin("base-plugin");
+        manager.activatePlugin("dependent-plugin");
+
+        assertThrows(IllegalStateException.class, () -> manager.deactivatePlugin("base-plugin"));
+        assertEquals(PluginLifecycle.ACTIVE, manager.getLifecycle("base-plugin"));
+    }
+
     private static Set<String> plannerIds(PluginManager manager) {
         return manager.registeredPlanners().stream()
                 .map(p -> p.descriptor().id())
@@ -55,15 +93,21 @@ class PluginManagerTest {
     private static final class TestPlugin implements NexoraPlugin {
         private final String pluginId;
         private final String plannerId;
+        private final List<String> requiredPlugins;
 
         private TestPlugin(String pluginId, String plannerId) {
+            this(pluginId, plannerId, List.of());
+        }
+
+        private TestPlugin(String pluginId, String plannerId, List<String> requiredPlugins) {
             this.pluginId = pluginId;
             this.plannerId = plannerId;
+            this.requiredPlugins = requiredPlugins;
         }
 
         @Override
         public PluginDescriptor descriptor() {
-            return new PluginDescriptor(pluginId, "1.0.0", pluginId, List.of(), null);
+            return new PluginDescriptor(pluginId, "1.0.0", pluginId, requiredPlugins, null);
         }
 
         @Override

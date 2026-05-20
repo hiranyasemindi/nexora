@@ -32,6 +32,7 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DagStepSchedulerTest {
@@ -126,6 +127,26 @@ class DagStepSchedulerTest {
             assertEquals(1, finalCalls.get());
             assertFalse(legacyResult.succeeded());
             assertEquals("SKIPPED", legacyResult.capabilityResult().failureCode());
+        }
+    }
+
+    @Test
+    void rejectsCyclicPlansBeforeExecution() {
+        CapabilityRegistry registry = new DefaultCapabilityRegistry();
+        registry.register(descriptor("a"), request -> CapabilityResult.success("a"));
+        registry.register(descriptor("b"), request -> CapabilityResult.success("b"));
+
+        try (TestHarness harness = new TestHarness(registry)) {
+            Plan cyclicPlan = new Plan(List.of(
+                    new Step("a", "a", Map.of(), null, Set.of("b"), null, null),
+                    new Step("b", "b", Map.of(), null, Set.of("a"), null, null)
+            ));
+
+            IllegalStateException ex = assertThrows(
+                    IllegalStateException.class,
+                    () -> harness.scheduler.schedule(cyclicPlan, context())
+            );
+            assertTrue(ex.getMessage().contains("Cycle detected"));
         }
     }
 
