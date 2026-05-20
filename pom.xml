@@ -9,11 +9,33 @@
     <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <modules>
-        <module>nexora-api</module>
+        <!-- Foundation — no intra-project deps -->
         <module>nexora-core</module>
+        <module>nexora-plugin-spi</module>
+
+        <!-- Infrastructure modules — depend only on core or spi -->
+        <module>nexora-registry</module>
+        <module>nexora-tracing</module>
+        <module>nexora-retry</module>
+        <module>nexora-event</module>
+
+        <!-- Execution pipeline — depends on infra modules -->
+        <module>nexora-executor</module>
+
+        <!-- Plugin loading — depends on spi, registry, event -->
+        <module>nexora-plugin-loader</module>
+
+        <!-- Domain modules -->
         <module>nexora-planner</module>
-        <module>nexora-runtime</module>
         <module>nexora-capabilities</module>
+
+        <!-- Runtime — orchestrates planner + executor + loader -->
+        <module>nexora-runtime</module>
+
+        <!-- Public API facade -->
+        <module>nexora-api</module>
+
+        <!-- Supplementary modules -->
         <module>nexora-persistence</module>
         <module>nexora-common</module>
         <module>nexora-cli</module>
