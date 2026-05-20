@@ -3,6 +3,7 @@ package com.nexora.planner.engine;
 import com.nexora.core.intent.Intent;
 import com.nexora.core.plan.Plan;
 import com.nexora.core.plan.Step;
+import com.nexora.planner.model.StepDefinition;
 import com.nexora.planner.registry.PlanRegistry;
 
 import java.util.List;
@@ -15,15 +16,26 @@ public class PlannerEngine {
         this.registry = registry;
     }
 
-    public Plan createPlan (Intent intent){
-
+    public Plan createPlan(Intent intent) {
         String goal = intent.getGoal();
 
         List<Step> steps = registry.getMatching(goal)
                 .stream()
-                .map(def -> new Step(def.getName()))
+                .map(this::toStep)
                 .toList();
 
         return new Plan(steps);
+    }
+
+    private Step toStep(StepDefinition def) {
+        return new Step(
+                def.getId(),
+                def.getCapabilityId(),
+                def.getInputs(),
+                def.getOutputKey(),
+                def.getDependsOn(),
+                def.getRetryPolicyId(),
+                def.getTimeout()
+        );
     }
 }
