@@ -11,11 +11,13 @@ jobs:
     name: Publish to GitHub Packages
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -32,5 +34,27 @@ jobs:
 
       - name: Publish packages
         run: mvn deploy -DskipTests --no-transfer-progress
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract release notes from CHANGELOG.md
+        id: changelog
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          # Extract the block between this tag heading and the next
+          NOTES=$(awk "/^## \[?${TAG//v/}\]?/{found=1; next} found && /^## /{exit} found{print}" CHANGELOG.md 2>/dev/null || true)
+          if [ -z "$NOTES" ]; then
+            NOTES="Release ${TAG}"
+          fi
+          # Write to a file to preserve newlines
+          echo "$NOTES" > release-notes.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Nexora ${{ github.ref_name }}"
+          body_path: release-notes.txt
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
