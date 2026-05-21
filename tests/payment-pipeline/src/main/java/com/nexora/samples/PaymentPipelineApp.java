@@ -140,14 +140,42 @@ public class PaymentPipelineApp {
         System.out.println("                    ├──> run_fraud_check ───────────────┘                       └──> update_ledger");
         System.out.println("  check_velocity ───┘");
         System.out.println();
-        System.out.println("Firing initial execution...");
+        System.out.println("Firing test scenarios...");
+        System.out.println();
 
-        // Fire a sample execution immediately so the UI has something to show on first load
+        // Scenario 1 — happy path, low risk
+        System.out.println("  [1/4] Happy path — amount=450, low risk");
         engine.execute("process payment",
                 Map.of("requestId", "REQ-" + requestCounter.getAndIncrement(),
                        "amount", 450.00,
                        "userId", "USR-99"));
+        sleep(200);
 
+        // Scenario 2 — high risk, triggers flag_for_review amendment
+        System.out.println("  [2/4] High risk — amount=1500, fraud review path");
+        engine.execute("process payment",
+                Map.of("requestId", "REQ-" + requestCounter.getAndIncrement(),
+                       "amount", 1500.00,
+                       "userId", "USR-42"));
+        sleep(200);
+
+        // Scenario 3 — payment gateway rejects, saga compensates completed steps
+        System.out.println("  [3/4] Gateway failure — process_payment fails, saga compensates");
+        engine.execute("process payment",
+                Map.of("requestId", "REQ-" + requestCounter.getAndIncrement(),
+                       "amount", 250.00,
+                       "userId", "USR-77",
+                       "forceFailure", true));
+        sleep(200);
+
+        // Scenario 4 — invalid request, validate_request rejects immediately
+        System.out.println("  [4/4] Validation failure — requestId=INVALID");
+        engine.execute("process payment",
+                Map.of("requestId", "INVALID",
+                       "amount", 100.00,
+                       "userId", "USR-01"));
+
+        System.out.println();
         System.out.println("Ready. Open http://localhost:9464/ in your browser.");
         System.out.println("Submit more executions via the form. Press Ctrl+C to stop.");
         System.out.println();
@@ -160,36 +188,44 @@ public class PaymentPipelineApp {
     static NexoraEngine buildEngine() {
         return NexoraEngine.builder()
                 .withPlugin(buildPlugin())
+                .withSagaEnabled(true)
                 // starts immediately (no deps)
                 .withStepDefinition(new StepDefinition(
                         "validate_request", "validate_request",
                         g -> g.contains("process"),
                         Map.of("requestId", InputBinding.fromContext("intent.context.requestId")),
-                        "validation", Set.of(), null, null))
+                        "validation", Set.of(), null, null,
+                        "validate_request_compensate"))
                 // starts immediately (no deps, parallel with validate_request)
                 .withStepDefinition(new StepDefinition(
                         "enrich_user_data", "enrich_user_data",
                         g -> g.contains("process"),
                         Map.of("userId", InputBinding.fromContext("intent.context.userId")),
-                        "userProfile", Set.of(), null, null))
+                        "userProfile", Set.of(), null, null,
+                        "enrich_user_data_compensate"))
                 // starts immediately (no deps, parallel with above)
                 .withStepDefinition(new StepDefinition(
                         "check_velocity", "check_velocity",
                         g -> g.contains("payment"),
-                        Map.of("userId", InputBinding.fromContext("intent.context.userId")),
-                        "velocityOk", Set.of(), null, null))
+                        Map.of("userId",             InputBinding.fromContext("intent.context.userId"),
+                               "forceVelocityFail",  InputBinding.fromContext("intent.context.forceVelocityFail")),
+                        "velocityOk", Set.of(), null, null,
+                        "check_velocity_compensate"))
                 // waits for enrich + velocity before scoring
                 .withStepDefinition(new StepDefinition(
                         "run_fraud_check", "run_fraud_check",
                         g -> g.contains("payment"),
-                        Map.of("amount", InputBinding.fromContext("intent.context.amount")),
-                        "riskScore", Set.of("enrich_user_data", "check_velocity"), null, null))
+                        Map.of("amount",         InputBinding.fromContext("intent.context.amount"),
+                               "forceFailure",   InputBinding.fromContext("intent.context.forceFailure")),
+                        "riskScore", Set.of("enrich_user_data", "check_velocity"), null, null,
+                        "run_fraud_check_compensate"))
                 // waits for validate + fraud check; has SLA + fallback
                 .withStepDefinition(new StepDefinition(
                         "process_payment", "process_payment",
                         g -> g.contains("payment"),
-                        Map.of("requestId", InputBinding.fromContext("intent.context.requestId"),
-                               "amount",    InputBinding.fromContext("intent.context.amount")),
+                        Map.of("requestId",    InputBinding.fromContext("intent.context.requestId"),
+                               "amount",       InputBinding.fromContext("intent.context.amount"),
+                               "forceFailure", InputBinding.fromContext("intent.context.forceFailure")),
                         "paymentId", Set.of("validate_request", "run_fraud_check"), null, null))
                 // waits for payment (parallel with update_ledger)
                 .withStepDefinition(new StepDefinition(
@@ -216,9 +252,15 @@ public class PaymentPipelineApp {
 
             @Override public List<CapabilityProvider> capabilityProviders() {
                 return List.of(
+                    // ── Happy-path capabilities ────────────────────────────────────────
+
                     cap("validate_request", CapabilityContract.none(), req -> {
                         sleep(15);
                         String id = String.valueOf(req.inputs().get("requestId"));
+                        if ("INVALID".equals(id)) {
+                            System.out.println("  [validate_request] " + id + " REJECTED - malformed request");
+                            return CapabilityResult.failure("VALIDATION_FAILED", "Request ID is invalid: " + id);
+                        }
                         System.out.println("  [validate_request] " + id + " OK");
                         return CapabilityResult.success(Map.of("valid", true, "requestId", id));
                     }),
@@ -234,8 +276,15 @@ public class PaymentPipelineApp {
                                 "history",  "clean"));
                     }),
 
+                    // fails when forceVelocityFail=true — simulates rate-limit breach
                     cap("check_velocity", CapabilityContract.none(), req -> {
                         sleep(35);
+                        boolean fail = Boolean.TRUE.equals(req.inputs().get("forceVelocityFail"));
+                        if (fail) {
+                            System.out.println("  [check_velocity] EXCEEDED - too many transactions");
+                            return CapabilityResult.failure("VELOCITY_EXCEEDED",
+                                    "Transaction rate limit breached for user");
+                        }
                         System.out.println("  [check_velocity] velocity within limits");
                         return CapabilityResult.success(Map.of("velocityOk", true, "txLast24h", 3));
                     }),
@@ -244,6 +293,7 @@ public class PaymentPipelineApp {
                     cap("run_fraud_check", CapabilityContract.none(), req -> {
                         sleep(90);
                         double amount = ((Number) req.inputs().getOrDefault("amount", 0)).doubleValue();
+                        boolean forceFailure = Boolean.TRUE.equals(req.inputs().get("forceFailure"));
                         double risk = amount > 1000 ? 0.85 : 0.12;
                         System.out.printf("  [run_fraud_check] amount=%.2f risk=%.2f%n", amount, risk);
 
@@ -255,12 +305,15 @@ public class PaymentPipelineApp {
                                 null, null, null);
 
                         return CapabilityResult.success(
-                                Map.of("riskScore", risk, "decision", risk > 0.5 ? "REVIEW" : "PASS"),
+                                Map.of("riskScore", risk,
+                                       "decision", risk > 0.5 ? "REVIEW" : "PASS",
+                                       "forceFailure", forceFailure),
                                 List.of(new AddStepAmendment(flagStep))
                         );
                     }),
 
                     // p99=300ms SLA, fallback to process_payment_fallback
+                    // fails when forceFailure=true — triggers saga compensation
                     cap("process_payment",
                         CapabilityContract.builder()
                             .p99Latency(Duration.ofMillis(300))
@@ -269,6 +322,12 @@ public class PaymentPipelineApp {
                             .build(),
                         req -> {
                             sleep(80);
+                            boolean forceFailure = Boolean.TRUE.equals(req.inputs().get("forceFailure"));
+                            if (forceFailure) {
+                                System.out.println("  [process_payment] FAILED - payment gateway rejected");
+                                return CapabilityResult.failure("GATEWAY_REJECTED",
+                                        "Payment gateway returned a hard decline");
+                            }
                             String pid = "PAY-" + System.currentTimeMillis();
                             System.out.println("  [process_payment] charged -> " + pid);
                             return CapabilityResult.success(Map.of("paymentId", pid, "status", "CAPTURED"));
@@ -298,6 +357,32 @@ public class PaymentPipelineApp {
                         double risk = ((Number) req.inputs().getOrDefault("risk", 0)).doubleValue();
                         System.out.printf("  [flag_for_review] risk=%.2f -> queued for manual review%n", risk);
                         return CapabilityResult.success(Map.of("flagged", true, "queue", "fraud-review"));
+                    }),
+
+                    // ── Compensate capabilities (saga rollback) ────────────────────────
+
+                    cap("validate_request_compensate", CapabilityContract.none(), req -> {
+                        sleep(10);
+                        System.out.println("  [validate_request_compensate] request record voided");
+                        return CapabilityResult.success(Map.of("voided", true));
+                    }),
+
+                    cap("enrich_user_data_compensate", CapabilityContract.none(), req -> {
+                        sleep(10);
+                        System.out.println("  [enrich_user_data_compensate] cached profile invalidated");
+                        return CapabilityResult.success(Map.of("invalidated", true));
+                    }),
+
+                    cap("check_velocity_compensate", CapabilityContract.none(), req -> {
+                        sleep(10);
+                        System.out.println("  [check_velocity_compensate] velocity counter decremented");
+                        return CapabilityResult.success(Map.of("decremented", true));
+                    }),
+
+                    cap("run_fraud_check_compensate", CapabilityContract.none(), req -> {
+                        sleep(10);
+                        System.out.println("  [run_fraud_check_compensate] fraud record retracted");
+                        return CapabilityResult.success(Map.of("retracted", true));
                     })
                 );
             }

@@ -123,7 +123,7 @@ public class Demo {
                 interceptors,
                 new CapabilityInvoker(capabilityRegistry, new com.nexora.executor.CapabilityContractMonitor())
         );
-        DagStepScheduler scheduler = new DagStepScheduler(pipeline, retryPolicyRegistry, eventBus, executor);
+        DagStepScheduler scheduler = new DagStepScheduler(pipeline, retryPolicyRegistry, eventBus, executor, capabilityRegistry);
 
         // 5. PLANNER — DAG WITH PARALLEL STEPS
         PlanRegistry planRegistry = new PlanRegistry();
