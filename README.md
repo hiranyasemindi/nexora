@@ -2,6 +2,9 @@
 
 Nexora is a Java execution engine that turns a high-level goal into a set of steps and runs them. You tell it what you want to happen, and it figures out the order, runs independent steps in parallel, and gives you back a result.
 
+<img width="1346" height="1162" alt="image" src="https://github.com/user-attachments/assets/96b64472-26a5-42cf-93dd-990062c9ba23" />
+
+
 The idea is that you shouldn't have to hard-code execution logic. You declare capabilities (things the system can do), define which steps map to which goal keywords, and Nexora handles the rest: planning, scheduling, retrying on failure, and tracing what happened.
 
 Three things set it apart from every other workflow engine:
