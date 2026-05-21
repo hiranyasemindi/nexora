@@ -16,7 +16,9 @@ import com.nexora.executor.interceptor.RetryInterceptor;
 import com.nexora.executor.interceptor.TimeoutInterceptor;
 import com.nexora.executor.interceptor.TracingInterceptor;
 import com.nexora.loader.PluginManager;
+import com.nexora.persistence.ExecutionStore;
 import com.nexora.planner.engine.CompositePlanner;
+import com.nexora.saga.SagaOrchestrator;
 import com.nexora.planner.engine.PlannerEngine;
 import com.nexora.planner.engine.RulePlanner;
 import com.nexora.planner.model.StepDefinition;
@@ -125,6 +127,8 @@ public final class NexoraEngine {
         private Tracer tracer = NoopTracer.INSTANCE;
         private RetryPolicy defaultRetryPolicy = RetryPolicy.noRetry();
         private Duration defaultTimeout = null;
+        private ExecutionStore executionStore = null;
+        private boolean sagaEnabled = false;
 
         private final List<NexoraPlugin> plugins = new ArrayList<>();
         private final List<Path> pluginJars = new ArrayList<>();
@@ -148,6 +152,16 @@ public final class NexoraEngine {
 
         public Builder withDefaultTimeout(Duration timeout) {
             this.defaultTimeout = timeout;
+            return this;
+        }
+
+        public Builder withExecutionStore(ExecutionStore store) {
+            this.executionStore = Objects.requireNonNull(store);
+            return this;
+        }
+
+        public Builder withSagaEnabled(boolean enabled) {
+            this.sagaEnabled = enabled;
             return this;
         }
 
@@ -205,7 +219,7 @@ public final class NexoraEngine {
             );
 
             // DAG scheduler
-            DagStepScheduler scheduler = new DagStepScheduler(pipeline, retryPolicyRegistry, eventBus, executor);
+            DagStepScheduler scheduler = new DagStepScheduler(pipeline, retryPolicyRegistry, eventBus, executor, capabilityRegistry);
 
             // Planner — composite of plugin planners + rule planner as fallback
             PlanRegistry planRegistry = new PlanRegistry();
@@ -218,9 +232,14 @@ public final class NexoraEngine {
             allPlanners.addAll(pluginManager.registeredPlanners());
             CompositePlanner compositePlanner = new CompositePlanner(allPlanners, rulePlanner);
 
+            // Saga orchestrator (optional)
+            SagaOrchestrator sagaOrchestrator = sagaEnabled
+                    ? new SagaOrchestrator(pipeline, eventBus, executor)
+                    : null;
+
             // Engine
             ExecutionEngine engine = new ExecutionEngine(
-                    compositePlanner, capabilityRegistry, scheduler, eventBus);
+                    compositePlanner, capabilityRegistry, scheduler, eventBus, executionStore, sagaOrchestrator);
 
             return new NexoraEngine(engine, pluginManager, eventBus, capabilityRegistry, contractMonitor);
         }
