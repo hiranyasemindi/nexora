@@ -29,6 +29,9 @@
         <module>nexora-planner</module>
         <module>nexora-capabilities</module>
 
+        <!-- Saga / compensation — depends on executor, event -->
+        <module>nexora-saga</module>
+
         <!-- Runtime — orchestrates planner + executor + loader -->
         <module>nexora-runtime</module>
 

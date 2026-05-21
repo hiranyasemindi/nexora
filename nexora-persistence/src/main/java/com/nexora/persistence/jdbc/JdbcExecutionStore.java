@@ -1,0 +1,234 @@
+package com.nexora.persistence.jdbc;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nexora.persistence.ExecutionRecord;
+import com.nexora.persistence.ExecutionState;
+import com.nexora.persistence.ExecutionStore;
+import com.nexora.persistence.StepRecord;
+import com.nexora.persistence.StepState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+/**
+ * JDBC-backed ExecutionStore. Ships with H2 as the default embedded database.
+ * For production, supply a DataSource URL pointing at PostgreSQL, MySQL, etc.
+ *
+ * Schema is created automatically on first use (DDL is idempotent).
+ *
+ * Connection management: a single dedicated connection protected by synchronized blocks.
+ * This is intentional for embedded H2; replace with a DataSource/HikariCP when using
+ * a remote database.
+ */
+public final class JdbcExecutionStore implements ExecutionStore {
+
+    private static final Logger log = LoggerFactory.getLogger(JdbcExecutionStore.class);
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+
+    private final Connection conn;
+
+    public JdbcExecutionStore(String jdbcUrl) {
+        try {
+            this.conn = DriverManager.getConnection(jdbcUrl);
+            initSchema();
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to connect to persistence store: " + jdbcUrl, e);
+        }
+    }
+
+    /** Convenience factory for the default embedded H2 store at the given file path. */
+    public static JdbcExecutionStore h2(String filePath) {
+        return new JdbcExecutionStore("jdbc:h2:" + filePath + ";AUTO_SERVER=FALSE");
+    }
+
+    /** In-memory H2 — useful for tests; data is lost when connection closes. */
+    public static JdbcExecutionStore h2InMemory() {
+        return new JdbcExecutionStore("jdbc:h2:mem:nexora_" + System.nanoTime() + ";DB_CLOSE_DELAY=-1");
+    }
+
+    private void initSchema() throws SQLException {
+        try (var stmt = conn.createStatement()) {
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS nexora_executions (
+                    execution_id  VARCHAR(36)  PRIMARY KEY,
+                    trace_id      VARCHAR(64),
+                    goal          TEXT,
+                    context_json  TEXT,
+                    state         VARCHAR(30)  NOT NULL,
+                    started_at    TIMESTAMP    NOT NULL,
+                    completed_at  TIMESTAMP
+                )
+            """);
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS nexora_steps (
+                    execution_id     VARCHAR(36)  NOT NULL,
+                    step_id          VARCHAR(200) NOT NULL,
+                    capability_id    VARCHAR(200) NOT NULL,
+                    idempotency_key  VARCHAR(36),
+                    state            VARCHAR(30)  NOT NULL,
+                    failure_code     VARCHAR(100),
+                    failure_message  TEXT,
+                    started_at       TIMESTAMP,
+                    completed_at     TIMESTAMP,
+                    duration_ms      BIGINT,
+                    PRIMARY KEY (execution_id, step_id),
+                    FOREIGN KEY (execution_id) REFERENCES nexora_executions(execution_id)
+                )
+            """);
+        }
+    }
+
+    @Override
+    public synchronized void createExecution(ExecutionRecord record) {
+        String sql = """
+            MERGE INTO nexora_executions
+                (execution_id, trace_id, goal, context_json, state, started_at, completed_at)
+            KEY (execution_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, record.executionId());
+            ps.setString(2, record.traceId());
+            ps.setString(3, record.goal());
+            ps.setString(4, JSON.writeValueAsString(record.context()));
+            ps.setString(5, record.state().name());
+            ps.setTimestamp(6, Timestamp.from(record.startedAt()));
+            ps.setTimestamp(7, record.completedAt() != null ? Timestamp.from(record.completedAt()) : null);
+            ps.executeUpdate();
+        } catch (Exception e) {
+            log.error("Failed to create execution record executionId={}", record.executionId(), e);
+        }
+    }
+
+    @Override
+    public synchronized void updateExecution(String executionId, ExecutionState state, Instant completedAt) {
+        String sql = "UPDATE nexora_executions SET state = ?, completed_at = ? WHERE execution_id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, state.name());
+            ps.setTimestamp(2, completedAt != null ? Timestamp.from(completedAt) : null);
+            ps.setString(3, executionId);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            log.error("Failed to update execution state executionId={}", executionId, e);
+        }
+    }
+
+    @Override
+    public synchronized void upsertStep(String executionId, StepRecord step) {
+        String sql = """
+            MERGE INTO nexora_steps
+                (execution_id, step_id, capability_id, idempotency_key, state,
+                 failure_code, failure_message, started_at, completed_at, duration_ms)
+            KEY (execution_id, step_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, executionId);
+            ps.setString(2, step.stepId());
+            ps.setString(3, step.capabilityId());
+            ps.setString(4, step.idempotencyKey());
+            ps.setString(5, step.state().name());
+            ps.setString(6, step.failureCode());
+            ps.setString(7, step.failureMessage());
+            ps.setTimestamp(8, step.startedAt() != null ? Timestamp.from(step.startedAt()) : null);
+            ps.setTimestamp(9, step.completedAt() != null ? Timestamp.from(step.completedAt()) : null);
+            ps.setLong(10, step.durationMs());
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            log.error("Failed to upsert step executionId={} stepId={}", executionId, step.stepId(), e);
+        }
+    }
+
+    @Override
+    public synchronized Optional<ExecutionRecord> findById(String executionId) {
+        String sql = "SELECT * FROM nexora_executions WHERE execution_id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, executionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return Optional.empty();
+                ExecutionRecord exec = mapExecution(rs);
+                return Optional.of(withSteps(exec));
+            }
+        } catch (Exception e) {
+            log.error("Failed to find execution executionId={}", executionId, e);
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public synchronized List<ExecutionRecord> findRecent(int limit) {
+        String sql = "SELECT * FROM nexora_executions ORDER BY started_at DESC LIMIT ?";
+        List<ExecutionRecord> results = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    results.add(withSteps(mapExecution(rs)));
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to query recent executions", e);
+        }
+        return results;
+    }
+
+    @Override
+    public synchronized void close() {
+        try { conn.close(); } catch (SQLException ignored) {}
+    }
+
+    private ExecutionRecord mapExecution(ResultSet rs) throws Exception {
+        Timestamp completedAt = rs.getTimestamp("completed_at");
+        Map<String, Object> ctx = JSON.readValue(rs.getString("context_json"), MAP_TYPE);
+        return new ExecutionRecord(
+                rs.getString("execution_id"),
+                rs.getString("trace_id"),
+                rs.getString("goal"),
+                ctx,
+                ExecutionState.valueOf(rs.getString("state")),
+                rs.getTimestamp("started_at").toInstant(),
+                completedAt != null ? completedAt.toInstant() : null,
+                List.of()
+        );
+    }
+
+    private ExecutionRecord withSteps(ExecutionRecord exec) throws SQLException {
+        String sql = "SELECT * FROM nexora_steps WHERE execution_id = ? ORDER BY started_at";
+        List<StepRecord> steps = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, exec.executionId());
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Timestamp startedAt  = rs.getTimestamp("started_at");
+                    Timestamp completedAt = rs.getTimestamp("completed_at");
+                    steps.add(new StepRecord(
+                            rs.getString("step_id"),
+                            rs.getString("capability_id"),
+                            rs.getString("idempotency_key"),
+                            StepState.valueOf(rs.getString("state")),
+                            rs.getString("failure_code"),
+                            rs.getString("failure_message"),
+                            startedAt  != null ? startedAt.toInstant()  : null,
+                            completedAt != null ? completedAt.toInstant() : null,
+                            rs.getLong("duration_ms")
+                    ));
+                }
+            }
+        }
+        return new ExecutionRecord(exec.executionId(), exec.traceId(), exec.goal(), exec.context(),
+                exec.state(), exec.startedAt(), exec.completedAt(), steps);
+    }
+}
