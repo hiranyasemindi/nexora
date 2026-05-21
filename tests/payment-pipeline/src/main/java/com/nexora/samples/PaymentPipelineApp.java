@@ -35,22 +35,32 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Payment fraud detection pipeline sample.
+ * 8-step payment fraud detection pipeline demo.
  *
- * DAG:
+ * Base DAG (8 steps):
  *
- *   validate_request ─────────────────────────────────────┐
- *                                                          ├──> process_payment ──┬──> send_confirmation
- *   enrich_user_data ─┐                                   │                      │
- *                     ├──> run_fraud_check ───────────────┘                      └──> update_ledger
- *   check_velocity ───┘
+ *   validate_request ──────────────────────────────────────────────┐
+ *                                                                    ├──> process_payment ──┬──> send_confirmation
+ *   enrich_user_data ─┐                                            │                       │
+ *                     ├──> run_fraud_check ─────────────────────────┘                       └──> update_ledger
+ *   check_velocity ───┤
+ *                     │
+ *   screen_sanctions ─┘
  *
- * run_fraud_check injects a flag_for_review step (plan amendment).
- * process_payment has a p99=300ms SLA with a fallback capability.
+ * run_fraud_check injects flag_for_review as a plan amendment (high-risk path).
+ * process_payment has a p99=300ms SLA with a declared fallback.
+ * All compensate capabilities are registered for saga rollback.
  *
- * Start the app, open http://localhost:9464/, and submit:
- *   Goal: process payment
- *   Context: {"requestId":"REQ-001","amount":450.00,"userId":"USR-99"}
+ * Startup fires 4 scenarios automatically:
+ *   1. Happy path          — all 8 steps complete, low risk
+ *   2. High risk           — flag_for_review injected, REVIEW decision
+ *   3. Gateway failure     — process_payment fails, saga compensates upstream steps
+ *   4. Sanctions hit       — screen_sanctions blocks early, partial compensation
+ *
+ * Manual execution via the form:
+ *   Goal:    process payment
+ *   Context: {"requestId":"REQ-X","amount":450.00,"userId":"USR-99"}
+ *   Flags:   "forceFailure":true | "forceBlockedUser":true | "forceVelocityFail":true
  */
 public class PaymentPipelineApp {
 
@@ -133,12 +143,20 @@ public class PaymentPipelineApp {
         System.out.printf("Metrics:   http://localhost:%d/metrics%n", HTTP_PORT);
         System.out.printf("WebSocket: ws://localhost:%d/%n", WS_PORT);
         System.out.println();
-        System.out.println("DAG:");
-        System.out.println("  validate_request ────────────────────────────────────┐");
-        System.out.println("                                                         ├──> process_payment ──┬──> send_confirmation");
-        System.out.println("  enrich_user_data ─┐                                  │                       │");
-        System.out.println("                    ├──> run_fraud_check ───────────────┘                       └──> update_ledger");
-        System.out.println("  check_velocity ───┘");
+        System.out.println("DAG (8 steps):");
+        System.out.println("  validate_request ──────────────────────────────────────────────┐");
+        System.out.println("                                                                    ├──> process_payment ──┬──> send_confirmation");
+        System.out.println("  enrich_user_data ─┐                                            │                       │");
+        System.out.println("                    ├──> run_fraud_check ─────────────────────────┘                       └──> update_ledger");
+        System.out.println("  check_velocity ───┤");
+        System.out.println("                    │");
+        System.out.println("  screen_sanctions ─┘");
+        System.out.println();
+        System.out.println("Scenarios:");
+        System.out.println("  1  Happy path       amount=450,  low risk");
+        System.out.println("  2  High risk         amount=1500, fraud review amendment");
+        System.out.println("  3  Gateway failure   forceFailure=true, saga compensates");
+        System.out.println("  4  Sanctions hit     forceBlockedUser=true, early failure + partial compensation");
         System.out.println();
         System.out.println("Firing test scenarios...");
         System.out.println();
@@ -168,12 +186,13 @@ public class PaymentPipelineApp {
                        "forceFailure", true));
         sleep(200);
 
-        // Scenario 4 — invalid request, validate_request rejects immediately
-        System.out.println("  [4/4] Validation failure — requestId=INVALID");
+        // Scenario 4 — sanctions blocklist hit, screen_sanctions fails early, partial compensation
+        System.out.println("  [4/4] Sanctions hit — forceBlockedUser=true, early failure + partial compensation");
         engine.execute("process payment",
-                Map.of("requestId", "INVALID",
-                       "amount", 100.00,
-                       "userId", "USR-01"));
+                Map.of("requestId", "REQ-" + requestCounter.getAndIncrement(),
+                       "amount", 200.00,
+                       "userId", "USR-BLOCKED",
+                       "forceBlockedUser", true));
 
         System.out.println();
         System.out.println("Ready. Open http://localhost:9464/ in your browser.");
@@ -189,37 +208,45 @@ public class PaymentPipelineApp {
         return NexoraEngine.builder()
                 .withPlugin(buildPlugin())
                 .withSagaEnabled(true)
-                // starts immediately (no deps)
+                // step 1 - starts immediately
                 .withStepDefinition(new StepDefinition(
                         "validate_request", "validate_request",
                         g -> g.contains("process"),
                         Map.of("requestId", InputBinding.fromContext("intent.context.requestId")),
                         "validation", Set.of(), null, null,
                         "validate_request_compensate"))
-                // starts immediately (no deps, parallel with validate_request)
+                // step 2 - starts immediately, parallel with step 1
                 .withStepDefinition(new StepDefinition(
                         "enrich_user_data", "enrich_user_data",
                         g -> g.contains("process"),
                         Map.of("userId", InputBinding.fromContext("intent.context.userId")),
                         "userProfile", Set.of(), null, null,
                         "enrich_user_data_compensate"))
-                // starts immediately (no deps, parallel with above)
+                // step 3 - starts immediately, parallel with steps 1-2
                 .withStepDefinition(new StepDefinition(
                         "check_velocity", "check_velocity",
                         g -> g.contains("payment"),
-                        Map.of("userId",             InputBinding.fromContext("intent.context.userId"),
-                               "forceVelocityFail",  InputBinding.fromContext("intent.context.forceVelocityFail")),
+                        Map.of("userId",            InputBinding.fromContext("intent.context.userId"),
+                               "forceVelocityFail", InputBinding.fromContext("intent.context.forceVelocityFail")),
                         "velocityOk", Set.of(), null, null,
                         "check_velocity_compensate"))
-                // waits for enrich + velocity before scoring
+                // step 4 - starts immediately, parallel with steps 1-3
+                .withStepDefinition(new StepDefinition(
+                        "screen_sanctions", "screen_sanctions",
+                        g -> g.contains("payment"),
+                        Map.of("userId",             InputBinding.fromContext("intent.context.userId"),
+                               "forceBlockedUser",   InputBinding.fromContext("intent.context.forceBlockedUser")),
+                        "sanctionsOk", Set.of(), null, null,
+                        "screen_sanctions_compensate"))
+                // step 5 - waits for steps 2, 3, 4
                 .withStepDefinition(new StepDefinition(
                         "run_fraud_check", "run_fraud_check",
                         g -> g.contains("payment"),
-                        Map.of("amount",         InputBinding.fromContext("intent.context.amount"),
-                               "forceFailure",   InputBinding.fromContext("intent.context.forceFailure")),
-                        "riskScore", Set.of("enrich_user_data", "check_velocity"), null, null,
+                        Map.of("amount",       InputBinding.fromContext("intent.context.amount"),
+                               "forceFailure", InputBinding.fromContext("intent.context.forceFailure")),
+                        "riskScore", Set.of("enrich_user_data", "check_velocity", "screen_sanctions"), null, null,
                         "run_fraud_check_compensate"))
-                // waits for validate + fraud check; has SLA + fallback
+                // step 6 - waits for steps 1, 5; has p99 SLA + fallback
                 .withStepDefinition(new StepDefinition(
                         "process_payment", "process_payment",
                         g -> g.contains("payment"),
@@ -227,13 +254,13 @@ public class PaymentPipelineApp {
                                "amount",       InputBinding.fromContext("intent.context.amount"),
                                "forceFailure", InputBinding.fromContext("intent.context.forceFailure")),
                         "paymentId", Set.of("validate_request", "run_fraud_check"), null, null))
-                // waits for payment (parallel with update_ledger)
+                // step 7 - waits for step 6, parallel with step 8
                 .withStepDefinition(new StepDefinition(
                         "send_confirmation", "send_confirmation",
                         g -> g.contains("payment"),
                         Map.of("paymentId", InputBinding.fromStep("process_payment", "paymentId")),
                         null, Set.of("process_payment"), null, null))
-                // waits for payment (parallel with send_confirmation)
+                // step 8 - waits for step 6, parallel with step 7
                 .withStepDefinition(new StepDefinition(
                         "update_ledger", "update_ledger",
                         g -> g.contains("process"),
@@ -252,7 +279,7 @@ public class PaymentPipelineApp {
 
             @Override public List<CapabilityProvider> capabilityProviders() {
                 return List.of(
-                    // ── Happy-path capabilities ────────────────────────────────────────
+                    // Happy-path capabilities
 
                     cap("validate_request", CapabilityContract.none(), req -> {
                         sleep(15);
@@ -287,6 +314,20 @@ public class PaymentPipelineApp {
                         }
                         System.out.println("  [check_velocity] velocity within limits");
                         return CapabilityResult.success(Map.of("velocityOk", true, "txLast24h", 3));
+                    }),
+
+                    // fails when forceBlockedUser=true — simulates sanctions blocklist hit
+                    cap("screen_sanctions", CapabilityContract.none(), req -> {
+                        sleep(40);
+                        boolean blocked = Boolean.TRUE.equals(req.inputs().get("forceBlockedUser"));
+                        String userId = String.valueOf(req.inputs().get("userId"));
+                        if (blocked) {
+                            System.out.println("  [screen_sanctions] " + userId + " BLOCKED - sanctions hit");
+                            return CapabilityResult.failure("SANCTIONS_HIT",
+                                    "User is on the sanctions blocklist: " + userId);
+                        }
+                        System.out.println("  [screen_sanctions] " + userId + " cleared");
+                        return CapabilityResult.success(Map.of("sanctionsOk", true, "userId", userId));
                     }),
 
                     // injects flag_for_review as a plan amendment
@@ -383,6 +424,12 @@ public class PaymentPipelineApp {
                         sleep(10);
                         System.out.println("  [run_fraud_check_compensate] fraud record retracted");
                         return CapabilityResult.success(Map.of("retracted", true));
+                    }),
+
+                    cap("screen_sanctions_compensate", CapabilityContract.none(), req -> {
+                        sleep(10);
+                        System.out.println("  [screen_sanctions_compensate] sanctions flag cleared");
+                        return CapabilityResult.success(Map.of("cleared", true));
                     })
                 );
             }
@@ -433,7 +480,7 @@ public class PaymentPipelineApp {
 
     record ExecuteRequest(String goal, Map<String, Object> context) {}
 
-    // ── WebSocket broadcaster ─────────────────────────────────────────────────
+    // WebSocket broadcaster
 
     static final class SnapshotBroadcaster extends WebSocketServer {
         SnapshotBroadcaster(int port) {
