@@ -42,6 +42,7 @@
         <module>nexora-persistence</module>
         <module>nexora-common</module>
         <module>nexora-cli</module>
+        <module>nexora-all</module>
     </modules>
 
     <properties>
