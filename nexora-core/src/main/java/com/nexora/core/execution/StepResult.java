@@ -1,26 +1,23 @@
 package com.nexora.core.execution;
 
-public class StepResult {
+import com.nexora.core.capability.CapabilityResult;
 
-    private final String stepName;
-    private final ExecutionStatus status;
-    private final String message;
+import java.util.Objects;
 
-    public StepResult(String stepName, ExecutionStatus status, String message) {
-        this.stepName = stepName;
-        this.status = status;
-        this.message = message;
-    }
-
-    public String getMessage() {
-        return message;
+public record StepResult(
+        String stepId,
+        CapabilityResult capabilityResult
+) {
+    public StepResult {
+        Objects.requireNonNull(stepId, "stepId must not be null");
+        Objects.requireNonNull(capabilityResult, "capabilityResult must not be null");
     }
 
     public ExecutionStatus getStatus() {
-        return status;
+        return capabilityResult.succeeded() ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
     }
 
-    public String getStepName() {
-        return stepName;
+    public boolean succeeded() {
+        return capabilityResult.succeeded();
     }
 }

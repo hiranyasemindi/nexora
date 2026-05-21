@@ -1,22 +1,24 @@
 package com.nexora.core.execution;
 
 import java.util.List;
+import java.util.Objects;
 
-public class ExecutionResult {
-
-    private final ExecutionStatus status;
-    private final List<StepResult> stepResults;
-
-    public ExecutionResult(ExecutionStatus status, List<StepResult> stepResults) {
-        this.status = status;
-        this.stepResults = stepResults;
+public record ExecutionResult(
+        String executionId,
+        ExecutionStatus status,
+        List<StepResult> stepResults
+) {
+    public ExecutionResult {
+        Objects.requireNonNull(executionId, "executionId must not be null");
+        Objects.requireNonNull(status, "status must not be null");
+        stepResults = stepResults == null ? List.of() : List.copyOf(stepResults);
     }
 
-    public ExecutionStatus getStatus() {
-        return status;
+    public static ExecutionResult completed(String executionId, List<StepResult> stepResults) {
+        return new ExecutionResult(executionId, ExecutionStatus.COMPLETED, stepResults);
     }
 
-    public List<StepResult> getStepResults() {
-        return stepResults;
+    public static ExecutionResult failed(String executionId, List<StepResult> stepResults) {
+        return new ExecutionResult(executionId, ExecutionStatus.FAILED, stepResults);
     }
 }

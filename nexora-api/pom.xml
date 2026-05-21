@@ -1,12 +1,10 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<?xml version='1.0' encoding='utf-8'?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>com.nexora</groupId>
         <artifactId>nexora</artifactId>
-        <version>1.0-SNAPSHOT</version>
+        <version>0.1.0</version>
     </parent>
 
     <artifactId>nexora-api</artifactId>
@@ -16,5 +14,60 @@
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.nexora</groupId>
+            <artifactId>nexora-runtime</artifactId>
+            </dependency>
+        <dependency>
+            <groupId>com.nexora</groupId>
+            <artifactId>nexora-plugin-loader</artifactId>
+            </dependency>
+        <dependency>
+            <groupId>com.nexora</groupId>
+            <artifactId>nexora-registry</artifactId>
+            </dependency>
+        <dependency>
+            <groupId>com.nexora</groupId>
+            <artifactId>nexora-executor</artifactId>
+            </dependency>
+        <dependency>
+            <groupId>com.nexora</groupId>
+            <artifactId>nexora-tracing</artifactId>
+            </dependency>
+        <dependency>
+            <groupId>com.nexora</groupId>
+            <artifactId>nexora-retry</artifactId>
+            </dependency>
+        <dependency>
+            <groupId>com.nexora</groupId>
+            <artifactId>nexora-event</artifactId>
+            </dependency>
+        <dependency>
+            <groupId>com.nexora</groupId>
+            <artifactId>nexora-planner</artifactId>
+            </dependency>
+        <dependency>
+            <groupId>com.nexora</groupId>
+            <artifactId>nexora-persistence</artifactId>
+            </dependency>
+        <dependency>
+            <groupId>com.nexora</groupId>
+            <artifactId>nexora-saga</artifactId>
+            </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.prometheus</groupId>
+            <artifactId>simpleclient</artifactId>
+            </dependency>
+        <dependency>
+            <groupId>io.prometheus</groupId>
+            <artifactId>simpleclient_common</artifactId>
+            </dependency>
+    </dependencies>
 
 </project>
