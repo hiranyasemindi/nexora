@@ -1,19 +1,30 @@
 ---
 name: Feature request
-about: Suggest an idea for this project
+about: Propose a new capability or improvement
 title: "[FEATURE] "
 labels: enhancement
 assignees: ''
 ---
 
-**Is your feature request related to a problem? Please describe.**
-A clear and concise description of what the problem is. Ex. I'm always frustrated when [...]
+## Problem
 
-**Describe the solution you'd like**
-A clear and concise description of what you want to happen.
+<!-- What is broken or missing today? Be specific about the impact. -->
 
-**Describe alternatives you've considered**
-A clear and concise description of any alternative solutions or features you've considered.
+## Proposed Solution
 
-**Additional context**
-Add any other context or screenshots about the feature request here.
+<!-- What should be built? Describe the behavior, API surface, or UX change. -->
+
+## Acceptance Criteria
+
+<!-- Checkboxes that define "done". Each item must be verifiable. -->
+
+- [ ] ...
+- [ ] ...
+
+## Technical Notes
+
+<!-- Implementation hints, affected modules, files, or known constraints. Delete if not applicable. -->
+
+## Related
+
+<!-- Link related issues, PRs, or external references. Delete if not applicable. -->

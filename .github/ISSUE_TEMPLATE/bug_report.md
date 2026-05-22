@@ -1,30 +1,48 @@
 ---
 name: Bug report
-about: Create a report to help us improve
+about: Report a reproducible defect
 title: "[BUG] "
 labels: bug
 assignees: ''
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+## What Happened
 
-**To Reproduce**
-Steps to reproduce the behavior:
+<!-- What did you observe? Be specific: error message, wrong output, crash, hang. -->
+
+## What Was Expected
+
+<!-- What should have happened instead? -->
+
+## Steps to Reproduce
+
 1. ...
 2. ...
 3. ...
 
-**Expected behavior**
-A clear and concise description of what you expected to happen.
+## Minimal Reproducer
 
-**Logs or Stack Traces**
-If applicable, paste logs or stack traces to help explain your problem. Please use code blocks for logs.
+<!-- Paste the smallest code snippet or command that triggers the bug. Use a code block. -->
 
-**Environment (please complete the following information):**
- - OS: [e.g. macOS, Linux, Windows]
- - Java Version: [e.g. 21]
- - Nexora Version: [e.g. 0.1.0]
+```java
 
-**Additional context**
-Add any other context about the problem here.
+```
+
+## Logs or Stack Trace
+
+<!-- Paste relevant logs or the full stack trace. Use a code block. -->
+
+```
+paste here
+```
+
+## Environment
+
+- OS: 
+- Java Version: 
+- Nexora Version: 
+- Database (if applicable): 
+
+## Additional Context
+
+<!-- Any other details: frequency, whether it is intermittent, related config, workaround found. Delete if not applicable. -->
