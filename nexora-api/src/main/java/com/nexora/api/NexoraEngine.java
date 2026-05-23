@@ -172,6 +172,9 @@ public final class NexoraEngine {
          * always overrides this value.
          */
         public Builder withDefaultPlanDeadline(Duration deadline) {
+            if (deadline == null || !deadline.isPositive()) {
+                throw new IllegalArgumentException("defaultPlanDeadline must be a positive duration, got: " + deadline);
+            }
             this.defaultPlanDeadline = deadline;
             return this;
         }
