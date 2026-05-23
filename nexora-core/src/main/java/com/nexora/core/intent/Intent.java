@@ -28,7 +28,7 @@ public class Intent {
     public Intent(String goal, Map<String, Object> context, Duration deadline) {
         this.goal = Objects.requireNonNull(goal, "goal must not be null");
         this.context = context == null ? Map.of() : Map.copyOf(context);
-        if (deadline != null && !deadline.isPositive()) {
+        if (deadline != null && deadline.compareTo(Duration.ZERO) <= 0) {
             throw new IllegalArgumentException(
                     "deadline must be a positive duration, got: " + deadline);
         }
