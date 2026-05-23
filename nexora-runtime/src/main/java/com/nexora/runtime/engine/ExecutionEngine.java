@@ -197,8 +197,6 @@ public final class ExecutionEngine {
                         ctx.getExecutionId(), capturedDeadline);
 
                 halted.set(true);
-                scheduledFuture.complete(
-                        ExecutionResult.timedOut(ctx.getExecutionId(), session.partialResults().get()));
             }, watchdogExecutor);
         }
 
