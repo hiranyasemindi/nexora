@@ -32,9 +32,15 @@ public final class CapabilityContractMonitor {
 
     private final ConcurrentHashMap<String, CircuitBreaker> breakers = new ConcurrentHashMap<>();
     private final ExecutionEventBus eventBus;
+    private final com.nexora.spi.CapabilityRegistry registry;
+
+    public CapabilityContractMonitor(ExecutionEventBus eventBus, com.nexora.spi.CapabilityRegistry registry) {
+        this.eventBus = java.util.Objects.requireNonNull(eventBus, "eventBus must not be null");
+        this.registry = registry;
+    }
 
     public CapabilityContractMonitor(ExecutionEventBus eventBus) {
-        this.eventBus = java.util.Objects.requireNonNull(eventBus, "eventBus must not be null");
+        this(eventBus, null);
     }
 
     // Default constructor for tests that don't need events
@@ -43,6 +49,7 @@ public final class CapabilityContractMonitor {
             @Override public <E extends com.nexora.event.ExecutionEvent> void publish(E event) {}
             @Override public <E extends com.nexora.event.ExecutionEvent> com.nexora.event.Subscription subscribe(Class<E> eventType, com.nexora.event.EventHandler<E> handler) { return () -> {}; }
         };
+        this.registry = null;
     }
 
     public void recordSuccess(String capabilityId, Duration latency) {
@@ -64,7 +71,16 @@ public final class CapabilityContractMonitor {
     }
 
     private CircuitBreaker breaker(String capabilityId) {
-        return breakers.computeIfAbsent(capabilityId, k -> new CircuitBreaker(CapabilityContract.DEFAULT_WINDOW));
+        return breakers.computeIfAbsent(capabilityId, k -> {
+            int windowSize = CapabilityContract.DEFAULT_WINDOW;
+            if (registry != null) {
+                java.util.Optional<com.nexora.spi.CapabilityDescriptor> descriptor = registry.findDescriptor(k);
+                if (descriptor.isPresent() && descriptor.get().contract() != null) {
+                    windowSize = descriptor.get().contract().slidingWindowSize();
+                }
+            }
+            return new CircuitBreaker(windowSize);
+        });
     }
 
     public enum CircuitState {

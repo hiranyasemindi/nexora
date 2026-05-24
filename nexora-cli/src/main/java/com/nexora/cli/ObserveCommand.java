@@ -30,7 +30,7 @@ import java.util.concurrent.Executors;
 )
 public class ObserveCommand implements Callable<Integer> {
 
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules();
 
     @ParentCommand
     private NexoraCli parent;

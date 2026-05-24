@@ -224,6 +224,8 @@ Amendments are applied by the scheduler before any dependent step begins. A `Pla
 
 ## Capability contracts
 
+> **Note**: Stateful circuit breaker options (`openDuration` and `probeInterval`) are currently **Unreleased**.
+
 Capabilities declare their expected operational behaviour. The engine monitors every call and reroutes traffic when a capability breaches its contract:
 
 ```java
@@ -378,6 +380,8 @@ This exposes four endpoints with no external dependencies:
 | `GET /api/process` | Raw process snapshot as JSON |
 | `POST /api/execute` | Trigger an execution remotely |
 | `GET /health/ready` | Check health of all capabilities (returns 503 if any circuit is OPEN/HALF_OPEN) |
+
+> **Note**: The `/health/ready` endpoint is currently **Unreleased**.
 
 Example execute request:
 
