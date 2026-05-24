@@ -133,6 +133,23 @@ public class ObserveCommand implements Callable<Integer> {
             ));
         });
 
+        server.createContext("/health/ready", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method Not Allowed");
+                return;
+            }
+            java.util.List<NexoraEngine.HealthSnapshot> snapshots = engine.listCapabilities().stream()
+                    .map(c -> NexoraEngine.HealthSnapshot.from(engine.capabilityHealth(c.id())))
+                    .toList();
+            
+            boolean anyOpen = snapshots.stream().anyMatch(s -> "OPEN".equals(s.state().name()) || "HALF_OPEN".equals(s.state().name()));
+            
+            sendJson(exchange, anyOpen ? 503 : 200, Map.of(
+                    "ready", !anyOpen,
+                    "capabilities", snapshots
+            ));
+        });
+
         server.createContext("/", exchange -> {
             String path = exchange.getRequestURI().getPath();
             if (!Objects.equals(path, "/") && !Objects.equals(path, "/index.html")) {
@@ -159,6 +176,7 @@ public class ObserveCommand implements Callable<Integer> {
         System.out.printf("UI:        http://%s:%d/%n", hostForDisplay(host), port);
         System.out.printf("Metrics:   http://%s:%d/metrics%n", hostForDisplay(host), port);
         System.out.printf("Process:   http://%s:%d/api/process%n", hostForDisplay(host), port);
+        System.out.printf("Health:    http://%s:%d/health/ready%n", hostForDisplay(host), port);
         System.out.printf("WebSocket: ws://%s:%d/%n", hostForDisplay(host), wsPort);
         System.out.println();
         System.out.println("Press Ctrl+C to stop.");
