@@ -20,6 +20,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 #### Observability
 - **Circuit breaker monitoring** - Added `/health/ready` endpoint to the observability server to monitor capabilities circuit statuses ([#36](https://github.com/iamvirul/nexora/issues/36))
 
+### Fixed
+
+- **Observability UI gets stuck on RUNNING for timed-out plans** - `NexoraObservability` tracker missed the `PlanTimedOutEvent`, leaving the UI infinitely spinning on `RUNNING`. Fixed by adding the event listener and updating the dashboard UI to correctly render the orange `TIMED_OUT` badge.
+
 ---
 
 ## [0.1.0] - 2026-05-22
