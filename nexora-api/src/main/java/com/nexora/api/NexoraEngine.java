@@ -121,9 +121,9 @@ public final class NexoraEngine {
         return contractMonitor.snapshot(capabilityId);
     }
 
-    public record HealthSnapshot(String capabilityId, int sampleCount, double errorRate, Duration p99Latency) {
+    public record HealthSnapshot(String capabilityId, CapabilityContractMonitor.CircuitState state, int sampleCount, double errorRate, Duration p99Latency) {
         public static HealthSnapshot from(CapabilityContractMonitor.HealthSnapshot s) {
-            return new HealthSnapshot(s.capabilityId(), s.sampleCount(), s.errorRate(), s.p99Latency());
+            return new HealthSnapshot(s.capabilityId(), s.state(), s.sampleCount(), s.errorRate(), s.p99Latency());
         }
     }
 
@@ -229,7 +229,7 @@ public final class NexoraEngine {
             retryPolicyRegistry.setDefault(defaultRetryPolicy);
 
             // Contract monitor
-            CapabilityContractMonitor contractMonitor = new CapabilityContractMonitor();
+            CapabilityContractMonitor contractMonitor = new CapabilityContractMonitor(eventBus);
 
             // Interceptor pipeline
             List<ExecutionInterceptor> interceptors = List.of(
