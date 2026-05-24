@@ -41,7 +41,7 @@ public final class CapabilityInvoker {
         Capability capability = registry.find(targetId).orElse(null);
 
         if (capability == null) {
-            monitor.recordFailure(primaryId, Duration.ZERO);
+            monitor.recordFailure(targetId, Duration.ZERO);
             return CapabilityResult.failure(
                     "CAPABILITY_NOT_FOUND",
                     "No capability registered with id: " + targetId
@@ -53,9 +53,9 @@ public final class CapabilityInvoker {
         Duration elapsed = Duration.between(start, Instant.now());
 
         if (result.succeeded()) {
-            monitor.recordSuccess(primaryId, elapsed);
+            monitor.recordSuccess(targetId, elapsed);
         } else {
-            monitor.recordFailure(primaryId, elapsed);
+            monitor.recordFailure(targetId, elapsed);
         }
 
         return result;
