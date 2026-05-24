@@ -229,7 +229,7 @@ public final class NexoraEngine {
             retryPolicyRegistry.setDefault(defaultRetryPolicy);
 
             // Contract monitor
-            CapabilityContractMonitor contractMonitor = new CapabilityContractMonitor(eventBus);
+            CapabilityContractMonitor contractMonitor = new CapabilityContractMonitor(eventBus, capabilityRegistry);
 
             // Interceptor pipeline
             List<ExecutionInterceptor> interceptors = List.of(
