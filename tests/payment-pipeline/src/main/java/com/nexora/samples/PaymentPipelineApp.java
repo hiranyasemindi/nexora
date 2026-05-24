@@ -205,6 +205,26 @@ public class PaymentPipelineApp {
                 Duration.ofMillis(100));
 
         System.out.println();
+        System.out.println("  [6/6] Circuit Breaker Demo — trip the breaker and observe fallback routing");
+        for (int i = 0; i < 5; i++) {
+            System.out.println("        Sending failing request " + (i + 1));
+            engine.execute("process payment",
+                    Map.of("requestId", "REQ-CB-" + i,
+                           "amount", 100.00,
+                           "userId", "USR-CB",
+                           "forceFailure", true));
+            sleep(150); // wait for execution
+        }
+        
+        System.out.println("        Circuit should now be OPEN. Sending a normal request...");
+        engine.execute("process payment",
+                Map.of("requestId", "REQ-CB-NORMAL",
+                       "amount", 100.00,
+                       "userId", "USR-CB",
+                       "forceFailure", false)); // Not forcing failure, but should still hit fallback!
+        sleep(200);
+
+        System.out.println();
         System.out.println("Ready. Open http://localhost:9464/ in your browser.");
         System.out.println("Submit more executions via the form. Press Ctrl+C to stop.");
         System.out.println();
@@ -369,6 +389,8 @@ public class PaymentPipelineApp {
                         CapabilityContract.builder()
                             .p99Latency(Duration.ofMillis(300))
                             .maxErrorRate(0.05)
+                            .openDuration(Duration.ofSeconds(10))
+                            .probeInterval(Duration.ofSeconds(5))
                             .fallback("process_payment_fallback")
                             .build(),
                         req -> {
