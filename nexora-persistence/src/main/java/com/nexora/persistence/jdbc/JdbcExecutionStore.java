@@ -88,6 +88,19 @@ public final class JdbcExecutionStore implements ExecutionStore {
                     FOREIGN KEY (execution_id) REFERENCES nexora_executions(execution_id)
                 )
             """);
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS nexora_webhook_deliveries (
+                    delivery_id      VARCHAR(36)  PRIMARY KEY,
+                    execution_id     VARCHAR(36)  NOT NULL,
+                    url              TEXT         NOT NULL,
+                    status_code      INT          NOT NULL,
+                    attempt          INT          NOT NULL,
+                    successful       BOOLEAN      NOT NULL,
+                    timestamp        TIMESTAMP    NOT NULL,
+                    error_message    TEXT,
+                    FOREIGN KEY (execution_id) REFERENCES nexora_executions(execution_id)
+                )
+            """);
         }
     }
 
@@ -150,6 +163,54 @@ public final class JdbcExecutionStore implements ExecutionStore {
         } catch (SQLException e) {
             log.error("Failed to upsert step executionId={} stepId={}", executionId, step.stepId(), e);
         }
+    }
+
+    @Override
+    public synchronized void recordWebhookDelivery(com.nexora.persistence.WebhookDeliveryRecord record) {
+        String sql = """
+            INSERT INTO nexora_webhook_deliveries
+                (delivery_id, execution_id, url, status_code, attempt, successful, timestamp, error_message)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, record.deliveryId());
+            ps.setString(2, record.executionId());
+            ps.setString(3, record.url());
+            ps.setInt(4, record.statusCode());
+            ps.setInt(5, record.attempt());
+            ps.setBoolean(6, record.successful());
+            ps.setTimestamp(7, Timestamp.from(record.timestamp()));
+            ps.setString(8, record.errorMessage());
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            log.error("Failed to insert webhook delivery executionId={}", record.executionId(), e);
+        }
+    }
+
+    @Override
+    public synchronized List<com.nexora.persistence.WebhookDeliveryRecord> getWebhookDeliveries(String executionId) {
+        String sql = "SELECT * FROM nexora_webhook_deliveries WHERE execution_id = ? ORDER BY timestamp ASC";
+        List<com.nexora.persistence.WebhookDeliveryRecord> results = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, executionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    results.add(new com.nexora.persistence.WebhookDeliveryRecord(
+                            rs.getString("delivery_id"),
+                            rs.getString("execution_id"),
+                            rs.getString("url"),
+                            rs.getInt("status_code"),
+                            rs.getInt("attempt"),
+                            rs.getBoolean("successful"),
+                            rs.getTimestamp("timestamp").toInstant(),
+                            rs.getString("error_message")
+                    ));
+                }
+            }
+        } catch (SQLException e) {
+            log.error("Failed to query webhook deliveries executionId={}", executionId, e);
+        }
+        return results;
     }
 
     @Override
