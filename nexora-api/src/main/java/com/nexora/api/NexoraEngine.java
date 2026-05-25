@@ -140,6 +140,7 @@ public final class NexoraEngine {
         private Duration defaultPlanDeadline = null;
         private ExecutionStore executionStore = null;
         private boolean sagaEnabled = false;
+        private String webhookSecret = null;
 
         private final List<NexoraPlugin> plugins = new ArrayList<>();
         private final List<Path> pluginJars = new ArrayList<>();
@@ -186,6 +187,11 @@ public final class NexoraEngine {
 
         public Builder withSagaEnabled(boolean enabled) {
             this.sagaEnabled = enabled;
+            return this;
+        }
+
+        public Builder withWebhookSecret(String webhookSecret) {
+            this.webhookSecret = webhookSecret;
             return this;
         }
 
@@ -264,7 +270,7 @@ public final class NexoraEngine {
             // Engine
             ExecutionEngine engine = new ExecutionEngine(
                     compositePlanner, capabilityRegistry, scheduler, eventBus,
-                    executionStore, sagaOrchestrator, defaultPlanDeadline, executor);
+                    executionStore, sagaOrchestrator, defaultPlanDeadline, executor, webhookSecret);
 
             return new NexoraEngine(engine, pluginManager, eventBus, capabilityRegistry, contractMonitor);
         }

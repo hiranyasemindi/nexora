@@ -20,6 +20,7 @@ import com.nexora.persistence.ExecutionState;
 import com.nexora.persistence.ExecutionStore;
 import com.nexora.persistence.StepRecord;
 import com.nexora.planner.engine.DefaultPlanningContext;
+import com.nexora.runtime.webhook.WebhookDeliveryService;
 import com.nexora.saga.SagaOrchestrator;
 import com.nexora.spi.CapabilityRegistry;
 import com.nexora.spi.Planner;
@@ -48,13 +49,14 @@ public final class ExecutionEngine {
     private final SagaOrchestrator sagaOrchestrator; // null = saga disabled
     private final Duration defaultPlanDeadline;      // null = no engine-wide deadline
     private final Executor executor;
+    private final WebhookDeliveryService webhookDeliveryService;
 
     public ExecutionEngine(
             Planner planner,
             CapabilityRegistry capabilityRegistry,
             DagStepScheduler scheduler,
             ExecutionEventBus eventBus) {
-        this(planner, capabilityRegistry, scheduler, eventBus, null, null, null, null);
+        this(planner, capabilityRegistry, scheduler, eventBus, null, null, null, null, null);
     }
 
     public ExecutionEngine(
@@ -63,7 +65,7 @@ public final class ExecutionEngine {
             DagStepScheduler scheduler,
             ExecutionEventBus eventBus,
             ExecutionStore store) {
-        this(planner, capabilityRegistry, scheduler, eventBus, store, null, null, null);
+        this(planner, capabilityRegistry, scheduler, eventBus, store, null, null, null, null);
     }
 
     public ExecutionEngine(
@@ -73,7 +75,7 @@ public final class ExecutionEngine {
             ExecutionEventBus eventBus,
             ExecutionStore store,
             SagaOrchestrator sagaOrchestrator) {
-        this(planner, capabilityRegistry, scheduler, eventBus, store, sagaOrchestrator, null, null);
+        this(planner, capabilityRegistry, scheduler, eventBus, store, sagaOrchestrator, null, null, null);
     }
 
     /**
@@ -90,7 +92,8 @@ public final class ExecutionEngine {
             ExecutionStore store,
             SagaOrchestrator sagaOrchestrator,
             Duration defaultPlanDeadline,
-            Executor executor) {
+            Executor executor,
+            String webhookSecret) {
         this.planner = Objects.requireNonNull(planner);
         this.capabilityRegistry = Objects.requireNonNull(capabilityRegistry);
         this.scheduler = Objects.requireNonNull(scheduler);
@@ -98,7 +101,8 @@ public final class ExecutionEngine {
         this.store = store;
         this.sagaOrchestrator = sagaOrchestrator;
         this.defaultPlanDeadline = defaultPlanDeadline;
-        this.executor = executor;
+        this.executor = executor != null ? executor : Executors.newVirtualThreadPerTaskExecutor();
+        this.webhookDeliveryService = new WebhookDeliveryService(webhookSecret, store, this.executor);
         if (store != null) {
             wireStoreSubscriptions();
         }
@@ -211,6 +215,7 @@ public final class ExecutionEngine {
                         ctx.getExecutionId(), traceContext.traceId(),
                         null, "UNEXPECTED_ERROR", elapsed, now
                 ));
+                webhookDeliveryService.deliverIfApplicable(ctx.getExecutionId(), intent, ExecutionStatus.FAILED, elapsed);
 
             } else if (result.status() == ExecutionStatus.TIMED_OUT) {
                 persistExecutionState(ctx.getExecutionId(), ExecutionState.TIMED_OUT, now);
@@ -219,6 +224,7 @@ public final class ExecutionEngine {
                         effectiveDeadline, elapsed, now));
                 log.warn("Execution timed out executionId={} elapsed={}ms deadline={}",
                         ctx.getExecutionId(), elapsed.toMillis(), effectiveDeadline);
+                webhookDeliveryService.deliverIfApplicable(ctx.getExecutionId(), intent, ExecutionStatus.TIMED_OUT, elapsed);
 
                 if (sagaOrchestrator != null) {
                     persistExecutionState(ctx.getExecutionId(), ExecutionState.COMPENSATING, now);
@@ -243,6 +249,7 @@ public final class ExecutionEngine {
                         failedStep, "STEP_FAILED", elapsed, now
                 ));
                 log.warn("Execution failed executionId={} failedStep={}", ctx.getExecutionId(), failedStep);
+                webhookDeliveryService.deliverIfApplicable(ctx.getExecutionId(), intent, ExecutionStatus.FAILED, elapsed);
                 if (sagaOrchestrator != null) {
                     persistExecutionState(ctx.getExecutionId(), ExecutionState.COMPENSATING, now);
                     sagaOrchestrator.compensate(plan, result, ctx)
@@ -261,6 +268,7 @@ public final class ExecutionEngine {
                 ));
                 log.info("Execution completed executionId={} elapsed={}ms",
                         ctx.getExecutionId(), elapsed.toMillis());
+                webhookDeliveryService.deliverIfApplicable(ctx.getExecutionId(), intent, ExecutionStatus.COMPLETED, elapsed);
             }
         });
     }
