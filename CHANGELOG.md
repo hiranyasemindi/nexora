@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 #### Observability
 - **Circuit breaker monitoring** - Added `/health/ready` endpoint to the observability server to monitor capabilities circuit statuses ([#36](https://github.com/iamvirul/nexora/issues/36))
+- **Webhook Callbacks** - Implemented asynchronous terminal event webhooks using Java 11 `HttpClient` with exponential backoff. Webhooks are signed with an HMAC-SHA256 signature and delivery attempts are persisted in `nexora_webhook_deliveries` and exposed via `/api/webhook-deliveries/{executionId}` ([#39](https://github.com/iamvirul/nexora/issues/39))
 
 ### Fixed
 

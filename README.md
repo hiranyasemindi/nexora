@@ -363,6 +363,33 @@ When a plan times out:
 2. A `PlanTimedOutEvent` is published.
 3. Saga compensation runs for completed steps if saga is enabled.
 
+## Webhook Callbacks (Unreleased version)
+
+Nexora allows you to register webhook URLs to be notified asynchronously when an execution reaches a terminal state (`COMPLETED`, `FAILED`, or `TIMED_OUT`). This is particularly useful when triggering executions remotely via the API and awaiting their outcome.
+
+To use webhooks securely, configure an HMAC-SHA256 signature secret in your `nexora.json` or via the `NEXORA_WEBHOOK_SECRET` environment variable:
+
+```json
+{
+  "webhookSecret": "your-secure-secret-here",
+  "steps": []
+}
+```
+
+When invoking an execution, supply the `webhookUrl` and optionally filter which terminal `webhookEvents` trigger a callback:
+
+```bash
+curl -X POST http://localhost:9464/api/execute \
+  -H "content-type: application/json" \
+  -d '{
+        "goal": "process order payment",
+        "webhookUrl": "https://your-api.com/webhooks/nexora",
+        "webhookEvents": ["COMPLETED", "FAILED", "TIMED_OUT"]
+      }'
+```
+
+Nexora will dispatch a JSON payload to your endpoint with the execution outcome. It signs the payload using the configured secret and passes the signature in the `nexora-signature` HTTP header for validation. It also utilizes exponential backoff to retry deliveries up to 5 times. Delivery attempts are persisted in the `nexora_webhook_deliveries` database table and can be queried for auditability via the API.
+
 ## Observability UI + Prometheus + Grafana
 
 Start Nexora's built-in observability server:
@@ -380,6 +407,7 @@ This exposes four endpoints with no external dependencies:
 | `GET /api/process` | Raw process snapshot as JSON |
 | `POST /api/execute` | Trigger an execution remotely |
 | `GET /health/ready` | Check health of all capabilities (returns 503 if any circuit is OPEN/HALF_OPEN) |
+| `GET /api/webhook-deliveries/{id}` | Audit log of webhook delivery attempts for an execution |
 
 > **Note**: The `/health/ready` endpoint is currently **Unreleased**.
 
