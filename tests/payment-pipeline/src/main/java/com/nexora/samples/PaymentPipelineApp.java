@@ -127,6 +127,14 @@ public class PaymentPipelineApp {
             sendJson(exchange, 202, Map.of("accepted", true, "goal", req.goal()));
         });
 
+        http.createContext("/api/mock-webhook", exchange -> {
+            System.out.println();
+            System.out.println("  >>> WEBHOOK CALLBACK RECEIVED!");
+            System.out.println("  >>> Signature: " + exchange.getRequestHeaders().getFirst("nexora-signature"));
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+
         CountDownLatch shutdown = new CountDownLatch(1);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             try { http.stop(0); broadcaster.stop(500); obs.close(); }
@@ -158,6 +166,8 @@ public class PaymentPipelineApp {
         System.out.println("  3  Gateway failure   forceFailure=true, saga compensates");
         System.out.println("  4  Sanctions hit     forceBlockedUser=true, early failure + partial compensation");
         System.out.println("  5  Execution timeout deadline=100ms, watchdog cancels execution + saga compensates");
+        System.out.println("  6  Circuit Breaker   trigger failures to open the circuit, then test fallback routing");
+        System.out.println("  7  Webhook Callback  dispatch webhook on execution completion with HMAC signature");
         System.out.println();
         System.out.println("Firing test scenarios...");
         System.out.println();
@@ -225,6 +235,17 @@ public class PaymentPipelineApp {
         sleep(200);
 
         System.out.println();
+        System.out.println("  [7/7] Webhook Callback Demo — triggering execution with a webhook URL");
+        engine.execute(new com.nexora.core.intent.Intent(
+                "process payment",
+                Map.of("requestId", "REQ-WEBHOOK", "amount", 50.00, "userId", "USR-WH"),
+                null,
+                "http://localhost:" + HTTP_PORT + "/api/mock-webhook",
+                List.of(com.nexora.core.execution.ExecutionStatus.COMPLETED, com.nexora.core.execution.ExecutionStatus.FAILED, com.nexora.core.execution.ExecutionStatus.TIMED_OUT)
+        ));
+        sleep(200);
+
+        System.out.println();
         System.out.println("Ready. Open http://localhost:9464/ in your browser.");
         System.out.println("Submit more executions via the form. Press Ctrl+C to stop.");
         System.out.println();
@@ -236,6 +257,7 @@ public class PaymentPipelineApp {
 
     static NexoraEngine buildEngine() {
         return NexoraEngine.builder()
+                .withWebhookSecret("payment-pipeline-secret-key-123")
                 .withPlugin(buildPlugin())
                 .withSagaEnabled(true)
                 // step 1 - starts immediately

@@ -7,6 +7,7 @@ public class CliConfig {
 
     public List<StepConfig> steps = List.of();
     public RetryConfig retry = new RetryConfig();
+    public String webhookSecret;
 
     public static class StepConfig {
         public String id;

@@ -121,6 +121,10 @@ public final class NexoraEngine {
         return contractMonitor.snapshot(capabilityId);
     }
 
+    public com.nexora.persistence.ExecutionStore getStore() {
+        return engine.getStore();
+    }
+
     public record HealthSnapshot(String capabilityId, CapabilityContractMonitor.CircuitState state, int sampleCount, double errorRate, Duration p99Latency) {
         public static HealthSnapshot from(CapabilityContractMonitor.HealthSnapshot s) {
             return new HealthSnapshot(s.capabilityId(), s.state(), s.sampleCount(), s.errorRate(), s.p99Latency());
@@ -140,6 +144,7 @@ public final class NexoraEngine {
         private Duration defaultPlanDeadline = null;
         private ExecutionStore executionStore = null;
         private boolean sagaEnabled = false;
+        private String webhookSecret = null;
 
         private final List<NexoraPlugin> plugins = new ArrayList<>();
         private final List<Path> pluginJars = new ArrayList<>();
@@ -186,6 +191,11 @@ public final class NexoraEngine {
 
         public Builder withSagaEnabled(boolean enabled) {
             this.sagaEnabled = enabled;
+            return this;
+        }
+
+        public Builder withWebhookSecret(String webhookSecret) {
+            this.webhookSecret = webhookSecret;
             return this;
         }
 
@@ -264,7 +274,7 @@ public final class NexoraEngine {
             // Engine
             ExecutionEngine engine = new ExecutionEngine(
                     compositePlanner, capabilityRegistry, scheduler, eventBus,
-                    executionStore, sagaOrchestrator, defaultPlanDeadline, executor);
+                    executionStore, sagaOrchestrator, defaultPlanDeadline, executor, webhookSecret);
 
             return new NexoraEngine(engine, pluginManager, eventBus, capabilityRegistry, contractMonitor);
         }

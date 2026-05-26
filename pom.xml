@@ -44,6 +44,7 @@
         <module>nexora-cli</module>
         <module>nexora-all</module>
         <module>tests/payment-pipeline</module>
+        <module>tests/json-config-demo</module>
     </modules>
 
     <properties>

@@ -11,7 +11,12 @@ final class EngineFactory {
     private EngineFactory() {}
 
     static NexoraEngine fromConfig(CliConfig config) {
+        String secret = config.webhookSecret != null && !config.webhookSecret.isBlank() 
+                ? config.webhookSecret 
+                : System.getenv("NEXORA_WEBHOOK_SECRET");
+
         NexoraEngine.Builder builder = NexoraEngine.builder()
+                .withWebhookSecret(secret)
                 .withDefaultRetryPolicy(
                         ExponentialBackoffPolicy.builder()
                                 .maxAttempts(config.retry.maxAttempts)
